@@ -1,6 +1,41 @@
 # HANDOFF — graphiti-src (2026-09-15 재구성)
 
-> 문서 버전 v12 — 2026-10-26
+> 문서 버전 v14 — 2026-11-14
+
+## 2026-11-14: targeted dependency security update
+
+Prepared on freshly fetched origin/main `1bf8396083a420eab995382e3e89c38dcd1819c6`.
+The root lock advances Soup Sieve to 4.0, OpenTelemetry API/SDK to 1.45.2
+(with matching semantic conventions 0.66b2), and Tornado to 6.6.1. The MCP lock
+advances only OpenTelemetry API 1.45.1 to 1.45.2. The OpenTelemetry example advances
+the matching API/SDK/conventions. Root and example Python support now starts at
+3.11.5, the minimum required by patched Soup Sieve. Other package versions remain
+unchanged; lock variants used only by older unsupported Python releases disappear.
+
+Fresh checks: all three `uv lock --check` commands, exact internal-ci Ruff 0.14.11
+check and format, and a separate candidate MCP `uv sync --locked` pass. The default
+MCP environment resolves Python 3.11.15 and OpenTelemetry API 1.45.2.
+The broader command `uv run --locked pytest tests/ -m "not integration" -q`
+failed during collection: `ModuleNotFoundError: No module named 'test_fixtures'`
+in two modules and missing optional `google-genai` in `test_cross_encoder_factory.py`.
+This is not a full-suite pass. Its exact output remains in local session evidence.
+A separate explicit ten-module local regression scope passes 111 tests with
+`PYTHONPATH=.:tests`: configuration, core parity, group routing, deletion/factories,
+FalkorDB configuration, runtime diagnostics and subscription shutdown (including
+their subprocess checks). These use mocks/synthetic inputs, not production writes.
+No graph/database contents or real provider requests were used for these checks.
+
+Publication is pending independent latest-Sol recorded review and exact-SHA
+internal-ci. After protected publication, reconcile only this session's original
+five dependency files into the source checkout while preserving `.claude/` and
+`.token-optimizer/`, then `uv sync --locked` in the operational `mcp_server/` and
+restart `graphiti-mcp.service`. Keep the existing loopback bind and secret wrapper.
+Verify the installed API version, active service, MCP initialize/list-tools and
+consumer availability. The live pre-change server responds successfully and its
+API version is 1.45.1. This update changes no graph data or service configuration.
+Reverting requires the normal review/publication path; database restore is not
+part of application rollback.
+
 
 ## 2026-10-26 core 0.31.2와 upstream 릴리스 갱신
 
@@ -227,14 +262,14 @@ UV 2114002는 2026-10-21 01:26:56 KST에 기동했고, wrap-up 때도 active/run
 ## 무엇을 했나
 
 2026-09-15, JL 지시로 이전 graphiti-src/graphiti-eval 로컬 구성을 백업 없이 전부 삭제하고
-처음부터 재구성했다(사용자 명시적 승인, 백업 불필요 판단).
+Spark에서 처음부터 재구성했다(사용자 명시적 승인, 백업 불필요 판단).
 
-1. `~/coding/graphiti-src` — `git clone https://github.com/getzep/graphiti` 새로 수행.
+1. `/home/jl/coding/graphiti-src` — `git clone https://github.com/getzep/graphiti` 새로 수행.
 2. `mcp_server/config/config-local-kure.yaml` — LLM=로컬 vLLM, embedder=KURE-v1(local shim),
    DB=FalkorDB 신규 작성.
 3. `mcp_server/run-mcp.sh` — 신규 작성. `~/.hermes/.env`(FALKORDB_PASSWORD)와
    `~/.hermes/config.yaml`(vLLM api_key)에서 실행 시점에 키를 끌어옴, 레포엔 평문 없음.
-4. `~/coding/graphiti-eval` — `kure_server.py`(OpenAI 호환 `/v1/embeddings`, KURE-v1) 새로 작성,
+4. `/home/jl/coding/graphiti-eval` — `kure_server.py`(OpenAI 호환 `/v1/embeddings`, KURE-v1) 새로 작성,
    `pyproject.toml`로 uv 관리.
 5. `kure-embed.service` — 처음으로 실제 systemd user 유닛 생성·enable·기동
    (이전엔 문서에만 "enabled"라고 적혀 있고 실제 유닛은 없었던 버그를 이번에 바로잡음).
@@ -328,7 +363,7 @@ UV 2114002는 2026-10-21 01:26:56 KST에 기동했고, wrap-up 때도 active/run
   - 인증: 무인증 `ping` → `NOAUTH Authentication required.`, `REDISCLI_AUTH` 사용 시 → `PONG`.
   - AOF: `CONFIG GET appendonly` → `yes`.
   - 데이터 보존: 재생성 전후 `DBSIZE` 유지 확인(재생성 후 `2`), 재생성 전 `BGSAVE` +
-    볼륨 tar 백업(`~/coding/graphiti-src/backups/falkordb-backup-20260915.tgz`)도 별도로 확보.
+    볼륨 tar 백업(`/home/jl/coding/graphiti-src/backups/falkordb-backup-20260915.tgz`)도 별도로 확보.
   - MCP 재연결: `get_status()` → `{"status":"ok", ...connected to falkordb database"}`.
   남은 위험(ADR 0002의 "미해결"): 같은 bridge 네트워크의 다른 컨테이너(mnsdb 등)는 컨테이너 IP로
   여전히 접속 가능, `tailscale serve`가 이 포트에 추가되면 재노출됨, 비밀번호 회전 미실시,
