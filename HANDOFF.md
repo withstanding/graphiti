@@ -1,8 +1,35 @@
 # HANDOFF — graphiti-src (2026-09-15 재구성)
 
-> 문서 버전 v15 — 2026-11-26
+> 문서 버전 v16 — 2026-11-26
 
-## 2026-11-26: upstream v0.32.1 merge and core 0.32.1 (prepared, not deployed)
+## 2026-11-26: upstream v0.32.1 merge and core 0.32.1 (deployed)
+
+### Deployment result (2026-11-26, JL approved)
+
+Production runs graphiti-core 0.32.1 from main `6b6a792bcfe058fbdfcee1618e47430c609ed8c7`.
+- Snapshot before the change: `BGSAVE`, copied to
+  `/home/jl/Documents/graphiti-falkordb-snapshots/20261126-pre-core-0321/dump.rdb`,
+  6,970,164 bytes, SHA256 `b7e6e5fe6620e7aeaaf7036afe8260f5d757d85c1e032e5f73ef31e84440d78a`,
+  `sha256sum -c` OK.
+- Read-only check of the live DB before the change: 0 `group_id` mismatches in all six graphs.
+- Push `cc04448..6b6a792` to origin main; internal-ci run
+  `00132f7f3bce4fda8faf23f95eebcfb9`, outcome `passed`, for the exact SHA.
+- Live checkout fast-forwarded to `6b6a792`; untracked `.claude/` and `.token-optimizer/` kept.
+- `stop`, `uv sync --locked` (only graphiti-core 0.31.2 -> 0.32.1 changed; mcp 2.2.0), `start`.
+  Service down for 0.18 s.
+- Checks: unit active, MainPID 1781907 since 08:42:08 KST, NRestarts 0; 13 tools;
+  `get_episodes`, `search_nodes`, `search_memory_facts` on `infra-memory`, `infra-wiki`,
+  `coding-wiki` returned results; `get_status` ok; no errors in the journal in the
+  first 3 minutes. Node/edge counts and group checks equal to the pre-change values.
+  `graphiti-session-sync-v2` at 08:43:21: `build_errors=0`, `dead_letter_count_this_run=0`.
+- This deployment wrote nothing to the live DB except the BGSAVE checkpoint; the
+  synthetic consumer probe was not run against it. Normal clients kept running (the
+  session-sync timer ran at 08:43:21, after the post-change count check); whether that
+  run wrote anything was not checked.
+- Local record: `/home/jl/coding/session-work/20261126-graphiti/UPDATE-RESULT-v1.md`.
+
+The sections below record the preparation as it was before deployment.
+
 
 Normal merge of upstream tag `v0.32.1` (`b22ae9eb76e7caeb285396f1838c85ef1c35494e`,
 67 commits after `d72407d`) into fork main `cc0444840f2689fdae48b825fc229f02ee56a562`.
@@ -56,7 +83,7 @@ Evidence: `/home/jl/coding/session-work/20261126-graphiti/` (logs, scripts, A/B 
 server logs that may contain graph text are under
 `/home/jl/Documents/graphiti-falkordb-snapshots/20261126-probe-work/`.
 
-### Deploy (after JL approval; none of this is done)
+### Deploy (as planned; executed 2026-11-26, see the result above)
 
 `run-mcp.sh` uses plain `uv run`, and the unit has `Restart=always`. Once the live
 checkout moves, any restart, including a crash restart, syncs to 0.32.1. So take the
@@ -70,8 +97,10 @@ snapshot first and restart right after the checkout moves.
 3. Live checkout: `git -C /home/jl/coding/graphiti-src fetch origin` then
    `git -C /home/jl/coding/graphiti-src merge --ff-only origin/main`. Keep the untracked
    `.claude/` and `.token-optimizer/`.
-4. `cd /home/jl/coding/graphiti-src/mcp_server && uv sync --locked`
-5. `systemctl --user restart graphiti-mcp.service`
+4. `systemctl --user stop graphiti-mcp.service`, then
+   `cd /home/jl/coding/graphiti-src/mcp_server && uv sync --locked`
+5. `systemctl --user start graphiti-mcp.service` (stop before sync, so the running
+   process never sees a half-replaced `.venv`)
 6. Verify: installed graphiti-core 0.32.1, unit active, HTTP initialize 200, 13 tools,
    read-only `get_episodes` on `infra-memory`, `infra-wiki`, `coding-wiki`, and the
    next `graphiti-session-sync-v2` timer run without dead letters. A synthetic
@@ -81,10 +110,13 @@ snapshot first and restart right after the checkout moves.
 ### Rollback
 
 Revert the whole merge, not the lock alone: the merged MCP code with core 0.31.2
-raises TypeError in five tools. Emergency: `git -C /home/jl/coding/graphiti-src switch
---detach cc0444840f2689fdae48b825fc229f02ee56a562`, `uv sync --locked` in `mcp_server/`,
-restart the unit; then publish `git revert -m 1 <merge sha>` through the normal gate and
-return the checkout to main. Data stays in place: 0.32.1 writes the same format, so no
+raises TypeError in five tools. Emergency, in this order: `systemctl --user stop graphiti-mcp.service`;
+`git -C /home/jl/coding/graphiti-src switch --detach cc0444840f2689fdae48b825fc229f02ee56a562`;
+`uv sync --locked` in `mcp_server/`; `systemctl --user start graphiti-mcp.service`. Stop
+first: with `Restart=always` a crash restart could otherwise start on a half-synced
+`.venv`. Then publish `git revert -m 1 <merge sha>` through the normal gate and
+return the checkout to main. A later upstream merge must first revert that revert,
+or the 67 upstream commits stay out. Data stays in place: 0.32.1 writes the same format, so no
 RDB restore is part of an application rollback. A restore from the step-1 snapshot
 loses later writes and needs its own decision (see the 2026-10-20 runbook below).
 
@@ -94,7 +126,7 @@ loses later writes and needs its own decision (see the 2026-10-20 runbook below)
 | Lock resolution | fork locks + upstream manifests | `uv lock --check` pass | new |
 | Unit/lint | merged tree, 0.32.1 wheel | 118 MCP pass; core 1116 pass, 11 upstream-identical fail | new |
 | Copy DB behaviour | 2026-10-26 RDB, live image | reads 9/9 identical, restated 2/2, consumer pass, A/B sweep | 2026-10-26 scripts reused as code, all runs new |
-| Publish/deploy | merge SHA review, CI, JL | pending | old approvals do not cover the new SHA |
+| Publish/deploy | merge SHA review, CI, JL | done: Opus APPROVE, CI passed, deployed | old approvals do not cover the new SHA |
 
 The 2026-10-26 snapshot predates a month of writes; the copy checks are not evidence
 about records written after it. Step 1 is the backup that matters for this deploy.
