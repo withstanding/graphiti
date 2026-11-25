@@ -16,7 +16,8 @@ Production runs graphiti-core 0.32.1 from main `6b6a792bcfe058fbdfcee1618e47430c
   `00132f7f3bce4fda8faf23f95eebcfb9`, outcome `passed`, for the exact SHA.
 - Live checkout fast-forwarded to `6b6a792`; untracked `.claude/` and `.token-optimizer/` kept.
 - `stop`, `uv sync --locked` (only graphiti-core 0.31.2 -> 0.32.1 changed; mcp 2.2.0), `start`.
-  Service down for 0.18 s.
+  The stop took 0.18 s; the server listened again at 08:42:09.5, about 1.3 s after
+  the stop request.
 - Checks: unit active, MainPID 1781907 since 08:42:08 KST, NRestarts 0; 13 tools;
   `get_episodes`, `search_nodes`, `search_memory_facts` on `infra-memory`, `infra-wiki`,
   `coding-wiki` returned results; `get_status` ok; no errors in the journal in the
@@ -26,7 +27,7 @@ Production runs graphiti-core 0.32.1 from main `6b6a792bcfe058fbdfcee1618e47430c
   synthetic consumer probe was not run against it. Normal clients kept running (the
   session-sync timer ran at 08:43:21, after the post-change count check); whether that
   run wrote anything was not checked.
-- Local record: `/home/jl/coding/session-work/20261126-graphiti/UPDATE-RESULT-v1.md`.
+- Local record: `/home/jl/coding/session-work/20261126-graphiti/UPDATE-RESULT-v2.md`.
 
 The sections below record the preparation as it was before deployment.
 
