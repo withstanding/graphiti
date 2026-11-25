@@ -53,8 +53,9 @@ def _serve(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_delete_episode_calls_core_with_its_installed_signature(monkeypatch):
-    # Regression: the server ran on PyPI graphiti-core, whose remove_episode takes
-    # only episode_uuid; passing group_id raised TypeError on every call.
+    # Regression: the server once passed group_id to a PyPI graphiti-core whose
+    # remove_episode did not accept it, so every call raised TypeError. graphiti-core
+    # 0.32 accepts it; _FakeClient still binds each call to the installed signature.
     default_driver, group_driver = Mock(), Mock()
     client = _client(default_driver, group_driver)
     _serve(monkeypatch, client)
@@ -66,7 +67,7 @@ async def test_delete_episode_calls_core_with_its_installed_signature(monkeypatc
     default_driver.clone.assert_called_once_with(database='coding-wiki')
     [(scoped_self, args, kwargs)] = client.calls
     assert args == ('episode-1',)
-    assert kwargs == {}
+    assert kwargs == {'group_id': 'coding-wiki'}
     assert scoped_self.driver is group_driver
     assert scoped_self.clients == 'scoped-clients'
     # The shared client stays bound to the default graph.

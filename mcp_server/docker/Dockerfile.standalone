@@ -43,7 +43,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app/mcp
 
 # Accept graphiti-core version as build argument
-ARG GRAPHITI_CORE_VERSION=0.29.1
+ARG GRAPHITI_CORE_VERSION=0.32.0
 ARG SOCKET_FIREWALL_ENABLED=false
 # Unique per release run so enforced builds re-resolve and re-download instead
 # of reusing cached layers, which sfw would never see.
@@ -74,7 +74,7 @@ RUN --mount=type=secret,id=socket_api_key \
       UV_CMD="uv"; \
     fi; \
     sed -i '/\[tool\.uv\.sources\]/,/graphiti-core/d' pyproject.toml; \
-    sed -i "s/graphiti-core\[falkordb\][>=]\+[0-9]\+\.[0-9]\+\.[0-9]\+/graphiti-core[neo4j,falkordb]==${GRAPHITI_CORE_VERSION}/" pyproject.toml; \
+    sed -i "s/graphiti-core\[falkordb\][>=]\+[0-9]\+\.[0-9]\+\.[0-9]\+/graphiti-core[falkordb]==${GRAPHITI_CORE_VERSION}/" pyproject.toml; \
     echo "Regenerating lock file for PyPI graphiti-core..."; \
     rm -f uv.lock; \
     $UV_CMD lock
@@ -114,7 +114,7 @@ COPY config/ ./config/
 RUN mkdir -p /var/log/graphiti
 
 # Add Docker labels with version information
-ARG MCP_SERVER_VERSION=1.0.2
+ARG MCP_SERVER_VERSION=1.1.3
 ARG BUILD_DATE
 ARG VCS_REF
 LABEL org.opencontainers.image.title="Graphiti MCP Server (Standalone)" \

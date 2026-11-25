@@ -1,6 +1,103 @@
 # HANDOFF — graphiti-src (2026-09-15 재구성)
 
-> 문서 버전 v14 — 2026-11-14
+> 문서 버전 v15 — 2026-11-26
+
+## 2026-11-26: upstream v0.32.1 merge and core 0.32.1 (prepared, not deployed)
+
+Normal merge of upstream tag `v0.32.1` (`b22ae9eb76e7caeb285396f1838c85ef1c35494e`,
+67 commits after `d72407d`) into fork main `cc0444840f2689fdae48b825fc229f02ee56a562`.
+The MCP lock moves PyPI graphiti-core 0.31.2 -> 0.32.1 (wheel sha256
+`0f6f8e8b46daf20e93a4c5a420fc19e7cedff7f9c80b69824c67bd626082e818`) and mcp-server
+1.1.2 -> 1.1.4; no other MCP package version changes. The fork constraint becomes
+`>=0.32.1,<0.33`. The core and MCP code must move together: upstream's MCP server now
+passes `group_id=` to `remove_episode`, `EntityEdge.get_by_uuid`, `summarize_saga` and
+`get_nodes_and_edges_by_episode`, which 0.31.2 rejects with TypeError.
+
+Conflicts (four files) were resolved for the fork: `requires-python >=3.11`, the fork
+pins, and every fork dependency version that is newer than upstream's (OpenTelemetry
+1.45.2, filelock 4.2.1, Soup Sieve 4.0, Tornado 6.6.1, pyasn1 0.6.5, certifi
+2026.10.23). Locks were taken from the fork side and re-resolved; the root lock
+additionally drops kuzu and langchain-anthropic and adds relate-db 1.0.1 (dev/extra
+only, as upstream). Upstream's newer aiohttp 3.14.5 / setuptools 84.2.1 were not taken:
+OSV lists no advisory for the fork's 3.14.4 / 84.1.0 (queried 2026-11-26). The fork
+regression test `mcp_server/tests/test_delete_episode.py` now expects the forwarded
+`group_id`.
+
+Data: no migration. Upstream changes no FalkorDB DDL, index or property format
+(independent review and diff). Stricter group checks only hide records whose
+`group_id` differs from their graph; on a restored copy of the 2026-10-26 RDB snapshot
+every node and edge of all five graphs matches its graph name (0 mismatches). Index
+build on the copy kept node/edge counts. New features (concurrent ingestion, identity
+properties, Relate driver) are off by default and not reached by the MCP server.
+
+Checks, all on copies, no live DB or service contact:
+- Upstream incoming `b22ae9e`: independent Opus APPROVE, recorded.
+- MCP tests with the installed 0.32.1 wheel (ten fork-relevant modules, network
+  namespace off): 118 passed. Ruff 0.14.11 check and format: pass. `uv lock --check`
+  for all four projects: pass.
+- Core `make test` equivalent (`-m "not integration"`, DB drivers disabled, no
+  network, Python 3.12): 1116 passed, 11 failed. The same 11 Relate `test_add_triplet`
+  cases fail identically on pure upstream `b22ae9e`; not caused by the merge, and Relate
+  is unused here. Python 3.14 cannot collect `tests/embedder/test_voyage.py`
+  (pydantic v1 under 3.14); this is an environment limit, not a pass.
+- FalkorDB-backed tests on an empty disposable FalkorDB: same failure set as v0.31.2
+  (mock embedder / missing OpenAI key), plus one new upstream identity-property test
+  whose stub lacks a keyword argument. Not a production path.
+- Disposable FalkorDB (live image digest, loopback 6381, 2026-10-26 RDB copy) with the
+  0.32.1 candidate server on 8766 and the 0.31.2 server on 8767: fixed reads on three
+  groups gave identical UUID-set hashes (nine comparisons); restated-fact delete passed
+  in both orders; the real graphiti-session-sync v2 consumer CRUD/search/delete passed.
+- ADR 0004 contradiction sweep, A/B on the same copy: temporal invalidation missed in
+  9/30 runs on 0.31.2 and 6/31 on 0.32.1; three runs timed out on a truncated local-LLM
+  JSON reply (1 on 0.31.2, 2 on 0.32.1). Prompts and temporal code are unchanged, so
+  this is local Qwen variance on both versions, not a regression. It does mean the
+  19/19 sweep is not a reliable single-run gate.
+Evidence: `/home/jl/coding/session-work/20261126-graphiti/` (logs, scripts, A/B runs);
+server logs that may contain graph text are under
+`/home/jl/Documents/graphiti-falkordb-snapshots/20261126-probe-work/`.
+
+### Deploy (after JL approval; none of this is done)
+
+`run-mcp.sh` uses plain `uv run`, and the unit has `Restart=always`. Once the live
+checkout moves, any restart, including a crash restart, syncs to 0.32.1. So take the
+snapshot first and restart right after the checkout moves.
+
+1. Fresh RDB checkpoint of the live DB: `BGSAVE`, wait, copy `dump.rdb` to a new
+   `/home/jl/Documents/graphiti-falkordb-snapshots/<YYYYMMDD>-pre-core-0321/` with
+   `SHA256SUMS` (same method as `session-work/20261026-spark-updates/graphiti/snapshot.py`).
+2. Publish the approved merge SHA through the protected push gate (review record +
+   exact-SHA internal-ci): `git -C <this worktree> push origin <sha>:refs/heads/main`.
+3. Live checkout: `git -C /home/jl/coding/graphiti-src fetch origin` then
+   `git -C /home/jl/coding/graphiti-src merge --ff-only origin/main`. Keep the untracked
+   `.claude/` and `.token-optimizer/`.
+4. `cd /home/jl/coding/graphiti-src/mcp_server && uv sync --locked`
+5. `systemctl --user restart graphiti-mcp.service`
+6. Verify: installed graphiti-core 0.32.1, unit active, HTTP initialize 200, 13 tools,
+   read-only `get_episodes` on `infra-memory`, `infra-wiki`, `coding-wiki`, and the
+   next `graphiti-session-sync-v2` timer run without dead letters. A synthetic
+   consumer probe writes to a new throwaway group on the live DB; run it only with
+   JL's approval.
+
+### Rollback
+
+Revert the whole merge, not the lock alone: the merged MCP code with core 0.31.2
+raises TypeError in five tools. Emergency: `git -C /home/jl/coding/graphiti-src switch
+--detach cc0444840f2689fdae48b825fc229f02ee56a562`, `uv sync --locked` in `mcp_server/`,
+restart the unit; then publish `git revert -m 1 <merge sha>` through the normal gate and
+return the checkout to main. Data stays in place: 0.32.1 writes the same format, so no
+RDB restore is part of an application rollback. A restore from the step-1 snapshot
+loses later writes and needs its own decision (see the 2026-10-20 runbook below).
+
+| Unit | Inputs | Status | Reuse |
+|---|---|---|---|
+| Incoming review | `b22ae9e` | Opus APPROVE, recorded | none |
+| Lock resolution | fork locks + upstream manifests | `uv lock --check` pass | new |
+| Unit/lint | merged tree, 0.32.1 wheel | 118 MCP pass; core 1116 pass, 11 upstream-identical fail | new |
+| Copy DB behaviour | 2026-10-26 RDB, live image | reads 9/9 identical, restated 2/2, consumer pass, A/B sweep | 2026-10-26 scripts reused as code, all runs new |
+| Publish/deploy | merge SHA review, CI, JL | pending | old approvals do not cover the new SHA |
+
+The 2026-10-26 snapshot predates a month of writes; the copy checks are not evidence
+about records written after it. Step 1 is the backup that matters for this deploy.
 
 ## 2026-11-14: targeted dependency security update
 
